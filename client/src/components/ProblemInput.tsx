@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { problemInputSchema, type ProblemInput } from "@shared/schema";
@@ -7,89 +8,135 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
-import { Upload } from "lucide-react";
+import { Upload, Trash2 } from "lucide-react";
+import axios from 'axios';
+
 
 export default function ProblemInput() {
-  const [, setLocation] = useLocation();
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [problemText, setProblemText] = useState("");
+  const [imageData, setImageData] = useState<string | undefined>();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
 
-  const form = useForm<ProblemInput>({
-    resolver: zodResolver(problemInputSchema),
-    defaultValues: {
-      problemText: "",
-      imageData: undefined,
-    },
-  });
-
-  const mutation = useMutation({
-    mutationFn: async (data: ProblemInput) => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    try {
       const formData = new FormData();
-      formData.append("problemText", data.problemText);
       
-      if (data.imageData) {
-        const response = await fetch(data.imageData);
-        const blob = await response.blob();
-        formData.append("image", blob);
+      if (problemText.trim()) {
+        formData.append("problemText", problemText.trim());
       }
 
-      const res = await fetch("/api/analyze", {
-        method: "POST",
-        body: formData,
+      if (imageData) {
+        try {
+          const response = await axios.get(imageData, { responseType: 'blob' });
+          formData.append("image", response.data);
+        } catch (error) {
+          console.error("Error processing image:", error);
+          throw new Error("Failed to process image");
+        }
+      }
+      
+      const response = await axios({
+        method: 'post',
+        url: '/api/analyze',
+        data: formData,
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
       });
 
-      if (!res.ok) {
-        throw new Error("Failed to analyze problem");
-      }
+      // Create the state object
+      const stateData = {
+        template: response.data.template,
+        blueprint: response.data.blueprint,
+        topic: response.data.topic,
+        gradeLevel: response.data.gradeLevel,
+        problemText: response.data.problemText,
+        imageUrl: response.data.imageUrl
+      };
 
-      return res.json();
-    },
-    onSuccess: (data) => {
-      setLocation(`/template/${data.id}`);
-    },
-    onError: () => {
+      // Use URLSearchParams to properly construct the URL
+      const params = new URLSearchParams();
+      params.append('state', JSON.stringify(stateData));
+      
+      // Navigate with properly constructed URL
+      setLocation(`/template/new?${params.toString()}`);
+
+    } catch (error) {
+      console.error("Error in handleSubmit:", error);
       toast({
         title: "Error",
-        description: "Failed to analyze the problem. Please try again.",
+        description: axios.isAxiosError(error) 
+          ? `API Error: ${error.response?.data?.error || error.message}`
+          : `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
         variant: "destructive",
       });
-    },
-  });
+    }
+  };
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        form.setValue("imageData", reader.result as string);
+        const imageData = reader.result as string;
+        setImageData(imageData);
+        setImagePreview(imageData);
+        setProblemText(""); // Clear problem text when image is uploaded
       };
       reader.readAsDataURL(file);
     }
   };
 
-  return (
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit((data) => mutation.mutate(data))}>
-        <FormField
-          control={form.control}
-          name="problemText"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Problem Text</FormLabel>
-              <FormControl>
-                <Textarea
-                  {...field}
-                  placeholder="Type or paste your math problem here..."
-                  rows={4}
-                />
-              </FormControl>
-            </FormItem>
-          )}
-        />
+  const handlePaste = (event: ClipboardEvent) => {
+    const items = event.clipboardData?.items;
+    if (!items) return;
 
-        <div className="mt-6">
-          <FormLabel>Problem Image (Optional)</FormLabel>
+    for (const item of items) {
+      if (item.type.startsWith("image")) {
+        const file = item.getAsFile();
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const imageData = reader.result as string;
+            setImageData(imageData);
+            setImagePreview(imageData);
+            setProblemText(""); // Clear problem text when image is pasted
+          };
+          reader.readAsDataURL(file);
+        }
+      }
+    }
+  };
+
+  useEffect(() => {
+    document.addEventListener("paste", handlePaste as unknown as EventListener);
+    return () => {
+      document.removeEventListener("paste", handlePaste as unknown as EventListener);
+    };
+  }, []);
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <div className="space-y-6">
+        <div>
+          <label className="block text-sm font-medium mb-2">Problem Text</label>
+          <Textarea
+            value={problemText}
+            onChange={(e) => setProblemText(e.target.value)}
+            placeholder="Type or paste your math problem here..."
+            rows={4}
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-2">
+            Problem Image (Optional) - Paste an image or upload a file
+          </label>
           <Input
             type="file"
             accept="image/*"
@@ -98,15 +145,35 @@ export default function ProblemInput() {
           />
         </div>
 
+        {imagePreview && (
+          <div className="relative">
+            <img 
+              src={imagePreview} 
+              alt="Preview" 
+              className="max-w-full max-h-60 border rounded-lg" 
+            />
+            <Button
+              type="button"
+              onClick={() => {
+                setImagePreview(null);
+                setImageData(undefined);
+              }}
+              className="absolute top-0 right-0 bg-red-500 text-white rounded-full p-2 hover:bg-red-700"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+
         <Button 
           type="submit" 
-          className="mt-6 w-full"
-          disabled={mutation.isPending}
+          className="w-full"
+          disabled={!problemText && !imageData}
         >
           <Upload className="h-4 w-4 mr-2" />
           Analyze Problem
         </Button>
-      </form>
-    </Form>
+      </div>
+    </form>
   );
 }

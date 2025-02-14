@@ -27,8 +27,13 @@ export type InsertMathProblem = z.infer<typeof insertMathProblemSchema>;
 export type MathProblem = typeof mathProblems.$inferSelect;
 
 export const problemInputSchema = z.object({
-  problemText: z.string().min(1, "Problem text is required"),
+  problemText: z.string().optional(),
   imageData: z.string().optional(),
+}).refine(data => {
+  // Ensure at least one of problemText or imageData is present
+  return data.problemText || data.imageData;
+}, {
+  message: "Either problem text or an image is required"
 });
 
 export type ProblemInput = z.infer<typeof problemInputSchema>;
@@ -40,3 +45,13 @@ export const feedbackSchema = z.object({
 });
 
 export type FeedbackInput = z.infer<typeof feedbackSchema>;
+
+export interface Problem {
+  problemText: string;
+  template: string;
+  topic: string;
+  gradeLevel: string;
+  imageUrl?: string | null;
+  rating?: number | null;
+  feedback?: string | null;
+}

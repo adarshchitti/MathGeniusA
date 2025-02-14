@@ -1,4 +1,4 @@
-import { MathProblem, InsertMathProblem } from "@shared/schema";
+import { MathProblem, InsertMathProblem } from '../shared/schema'; // Adjust the import path as necessary
 
 export interface IStorage {
   createProblem(problem: InsertMathProblem): Promise<MathProblem>;
@@ -8,17 +8,20 @@ export interface IStorage {
 }
 
 export class MemStorage implements IStorage {
-  private problems: Map<number, MathProblem>;
-  private currentId: number;
+  private problems: Map<number, MathProblem> = new Map();
 
-  constructor() {
-    this.problems = new Map();
-    this.currentId = 1;
-  }
-
-  async createProblem(problem: InsertMathProblem): Promise<MathProblem> {
-    const id = this.currentId++;
-    const newProblem = { ...problem, id };
+  async createProblem(data: InsertMathProblem): Promise<MathProblem> {
+    const id = this.problems.size + 1;
+    const newProblem: MathProblem = { 
+      id, 
+      problemText: data.problemText, 
+      template: data.template, 
+      topic: data.topic, 
+      gradeLevel: data.gradeLevel, 
+      imageUrl: data.imageUrl ?? null, 
+      rating: data.rating ?? null, 
+      feedback: data.feedback ?? null 
+    };
     this.problems.set(id, newProblem);
     return newProblem;
   }
